@@ -1,0 +1,262 @@
+---
+title: "Discussion 3 Nov"
+format: html
+editor: visual
+---
+
+## TidyTuesday Dataset
+
+<https://github.com/rfordatascience/tidytuesday/blob/main/data/2025/2025-10-28/readme.md>
+
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+library(readr)
+# install.packages("tidytuesdayR")
+prizes <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-10-28/prizes.csv")
+
+# tuesdata <- tidytuesdayR::tt_load('2025-10-28')
+#tuesdata <- tidytuesdayR::tt_load(2025, week = 43)
+prizes <- prizes %>%
+  mutate(
+    prize_year = as.numeric(prize_year)
+  )
+# prizes <- tuesdata$prizes
+```
+
+```{r}
+length(unique(prizes$degree_institution))
+```
+
+```{r}
+length(unique(prizes$prize_genre))
+```
+
+```{r}
+length(unique(prizes$prize_alias))
+```
+
+```{r}
+length(unique(prizes$prize_name))
+```
+
+```{r}
+length(unique(prizes$prize_id))
+```
+
+```{r}
+prizes |> count(uk_residence, person_role, ethnicity_macro)
+```
+
+```{r}
+length(unique(prizes$ethnicity_macro))
+```
+
+```{r}
+colnames(prizes)
+
+```
+
+Clean steps:
+
+```{r}
+library(tidyverse)
+library(dplyr)
+
+prizes_clean <- prizes %>%
+  mutate(
+    prize_genre = as.factor(prize_genre),
+    prize_alias = as.factor(prize_alias),
+    prize_name = as.factor(prize_name),
+    person_role = as.factor(person_role),
+    gender = as.factor(gender),
+    sexuality = as.factor(sexuality),
+    ethnicity = as.factor(ethnicity),
+    ethnicity_macro = as.factor(ethnicity_macro),
+    highest_degree = as.factor(highest_degree),
+    degree_field = as.factor(degree_field),
+    degree_field_category = as.factor(degree_field_category),
+    uk_residence = as.logical(uk_residence)
+  ) %>%
+
+  mutate(
+    across(where(is.character), \(x) str_squish(x))
+  ) %>%
+
+  mutate(
+    prize_id = as.character(prize_id),
+    person_id = as.character(person_id),
+    book_id = as.character(book_id),
+    viaf = as.character(viaf)
+  ) %>%
+
+  distinct()
+write.csv(prizes_clean, "prizes_clean.csv", row.names = FALSE)
+```
+
+## Deliverable
+
+-   Create a **Shiny app** with an interactive interface that allows users to easily explore the dataset using relevant filters.
+
+-   Your app should include multiple **web pages (tabs)** that address key questions about the dataset. These questions can be based on those discussed in class or ones you develop on your own — bonus points will be awarded for original questions that demonstrate insight or creativity.
+
+-   The app should include **data visualizations** that help communicate your findings clearly.
+
+-   When submitting, please provide a **GitHub repository** containing:
+
+    -   `app.R` (the main file to run the app)
+
+    -   Any additional scripts used in the app
+
+    -   The cleaned dataset
+
+    -   A working version of the app that can be launched directly from `app.R`
+
+    ```{r}
+    library(shiny)
+    library(ggplot2)
+    library(plotly)
+    library(DT)
+
+    ui <- fluidPage(
+      titlePanel("TidyTuesday Prize Awards Explorer"),
+      
+      tabsetPanel(
+        tabPanel("Overview",
+                 h3("Dataset Summary"),
+                 verbatimTextOutput("summary"),
+                 hr(),
+                 h4("Full Dataset"),
+                 DTOutput("table")
+        ),
+        
+        tabPanel("Explore by Prize Category",
+                 sidebarLayout(
+                   sidebarPanel(
+                     
+                     selectInput("genre", "Prize Genre:",
+                                 choices = sort(unique(prizes$prize_genre)),
+                                 selected = unique(prizes$prize_genre)[1]),
+                     
+                     sliderInput("yearRange", "Year Range:",
+                                 min = min(prizes$prize_year, na.rm = TRUE),
+                                 max = max(prizes$prize_year, na.rm = TRUE),
+                                 value = c(min(prizes$prize_year, na.rm = TRUE),
+                                           max(prizes$prize_year, na.rm = TRUE)))
+                   ),
+                   
+                   mainPanel(
+                     plotlyOutput("genrePlot"),
+                     hr(),
+                     DTOutput("genreTable")
+                   )
+                 )
+        ),
+        
+        tabPanel("People & Demographics",
+                 fluidRow(
+                   column(6,
+                          h4("Ethnicity Distribution"),
+                          plotlyOutput("ethnicityPlot")
+                   ),
+                   column(6,
+                          h4("Roles Distribution"),
+                          plotlyOutput("rolePlot")
+                   )
+                 )
+        ),
+        
+        tabPanel("Institutions & Countries",
+                 sidebarLayout(
+                   sidebarPanel(
+                     selectInput("institution", "Select Institution:",
+                                 choices = sort(unique(prizes$degree_institution)),
+                                 selected = unique(prizes$degree_institution)[1])
+                   ),
+                   
+                   mainPanel(
+                     h4("Country of Residence Distribution"),
+                     plotlyOutput("countryPlot"),
+                     hr(),
+                     h4("Institution Summary"),
+                     verbatimTextOutput("instSummary")
+                   )
+                 )
+        )
+      )
+    )
+
+    server <- function(input, output) {
+      
+      output$summary <- renderPrint({
+        summary(prizes)
+      })
+      
+      output$table <- renderDT({
+        datatable(prizes)
+      })
+      
+      output$genrePlot <- renderPlotly({
+        
+        filtered <- prizes %>%
+          filter(prize_genre == input$genre,
+                 prize_year >= input$yearRange[1],
+                 prize_year <= input$yearRange[2])
+        
+        p <- ggplot(filtered, aes(x = prize_year)) +
+          geom_histogram(binwidth = 1, fill = "steelblue", alpha = 0.7) +
+          labs(title = paste("Awards Over Time –", input$genre),
+               x = "Prize Year",
+               y = "Count")
+        
+        ggplotly(p)
+      })
+      
+      
+      output$genreTable <- renderDT({
+        prizes %>%
+          filter(prize_genre == input$genre) %>%
+          datatable()
+      })
+      
+      output$ethnicityPlot <- renderPlotly({
+        counts <- prizes %>% count(ethnicity_macro)
+        
+        p <- ggplot(counts, aes(x = ethnicity_macro, y = n, fill = ethnicity_macro)) +
+          geom_col() +
+          labs(title = "Ethnicity Distribution") +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1))
+        
+        ggplotly(p)
+      })
+      
+      
+      output$rolePlot <- renderPlotly({
+        role_counts <- prizes %>% count(person_role)
+        
+        p <- ggplot(role_counts, aes(x = person_role, y = n, fill = person_role)) +
+          geom_col() +
+          labs(title = "Roles Distribution")
+        
+        ggplotly(p)
+      })
+      
+      output$countryPlot <- renderPlotly({
+        counts <- prizes %>% count(uk_residence)
+        
+        p <- ggplot(counts, aes(x = uk_residence, y = n, fill = uk_residence)) +
+          geom_col() +
+          labs(title = "UK Residence Distribution")
+        
+        ggplotly(p)
+      })
+      
+      
+      output$instSummary <- renderPrint({
+        prizes %>%
+          filter(degree_institution == input$institution) %>%
+          summary()
+      })
+    }
+
+    shinyApp(ui, server)
+    ```
